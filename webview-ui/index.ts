@@ -37,6 +37,21 @@ interface InitialData {
   filePath: string;
 }
 
+interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  fileName: string;
+  annotations: Array<{
+    lineStart: number;
+    lineEnd: number;
+    selectedText: string;
+    annotationText: string;
+  }>;
+  diff: string;
+}
+
+const expandedHistoryIds = new Set<string>();
+
 // Initialize modules
 const preview = initPreview(document.getElementById('markdown-content')!, {
   onTextSelected: (lineStart, lineEnd, selectedText) => {
@@ -73,7 +88,7 @@ const annotationPanel = initAnnotationPanel(
 const btnSubmit = document.getElementById('btn-submit')!;
 const processingBadge = document.getElementById('processing-badge')!;
 
-function switchRightTab(tab: 'annotations' | 'suggestions' | 'analysis'): void {
+function switchRightTab(tab: 'annotations' | 'analysis' | 'history'): void {
   document.querySelectorAll<HTMLElement>('.right-tab').forEach((button) => {
     const isActive = button.dataset.tab === tab;
     button.classList.toggle('active', isActive);
@@ -88,7 +103,7 @@ function switchRightTab(tab: 'annotations' | 'suggestions' | 'analysis'): void {
 document.querySelectorAll<HTMLButtonElement>('.right-tab').forEach((button) => {
   button.addEventListener('click', () => {
     const tab = button.dataset.tab;
-    if (tab === 'annotations' || tab === 'suggestions' || tab === 'analysis') {
+    if (tab === 'annotations' || tab === 'analysis' || tab === 'history') {
       switchRightTab(tab);
     }
   });
@@ -182,8 +197,8 @@ window.addEventListener('message', (event) => {
       break;
     }
 
-    case 'showSuggestions': {
-      showEditableSuggestions(message.content);
+    case 'updateHistory': {
+      renderHistory(message.entries || []);
       break;
     }
 
@@ -213,27 +228,103 @@ window.addEventListener('message', (event) => {
   }
 });
 
-function showEditableSuggestions(content: string): void {
-  const panel = document.getElementById('suggestions-panel')!;
-  const editor = document.getElementById('suggestions-editor') as HTMLTextAreaElement;
-
-  editor.value = content;
-  editor.readOnly = true;
-  panel.classList.remove('hidden');
-  switchRightTab('suggestions');
-}
-
-function hideEditableSuggestions(): void {
-  switchRightTab('annotations');
-}
-
 function showProgressLog(lines: string[]): void {
   const panel = document.getElementById('analysis-panel')!;
   const contentEl = document.getElementById('analysis-content')!;
 
   panel.classList.remove('collapsed');
-  contentEl.innerHTML = renderClaudeLog(lines);
+  contentEl.innerHTML = renderTerminalLog(lines.join(''));
   contentEl.scrollTop = contentEl.scrollHeight;
+}
+
+function renderHistory(entries: HistoryEntry[]): void {
+  const contentEl = document.getElementById('history-content')!;
+
+  if (entries.length === 0) {
+    contentEl.innerHTML = '<p class="placeholder">Applied diffs will appear here.</p>';
+    return;
+  }
+
+  contentEl.innerHTML = entries.map((entry, index) => {
+    const time = new Date(entry.timestamp).toLocaleTimeString();
+    const expanded = expandedHistoryIds.has(entry.id);
+    return `
+      <article class="history-entry ${expanded ? 'expanded' : ''}" data-history-id="${entry.id}">
+        <button class="history-entry-header">
+          <div>
+            <div class="history-entry-title">Run ${entries.length - index}</div>
+            <div class="history-entry-meta">${escapeHtml(entry.fileName)} · ${time} · ${entry.annotations.length} annotation(s)</div>
+          </div>
+          <span class="history-expand-icon">▶</span>
+        </button>
+        <div class="history-annotations">
+          ${renderHistoryAnnotations(entry)}
+        </div>
+        <div class="history-diff-wrap">
+          ${renderDiff(entry.diff)}
+        </div>
+      </article>
+    `;
+  }).join('');
+
+  contentEl.querySelectorAll<HTMLElement>('.history-entry-header').forEach((header) => {
+    header.addEventListener('click', () => {
+      const entry = header.closest<HTMLElement>('.history-entry');
+      const id = entry?.dataset.historyId;
+      if (!id) { return; }
+
+      if (expandedHistoryIds.has(id)) {
+        expandedHistoryIds.delete(id);
+      } else {
+        expandedHistoryIds.add(id);
+      }
+      renderHistory(entries);
+    });
+  });
+}
+
+function renderHistoryAnnotations(entry: HistoryEntry): string {
+  if (entry.annotations.length === 0) {
+    return '<p class="history-empty">No annotation snapshot was recorded.</p>';
+  }
+
+  return entry.annotations.map((annotation, index) => {
+    const lineLabel = annotation.lineStart === annotation.lineEnd
+      ? `Line ${annotation.lineStart}`
+      : `Lines ${annotation.lineStart}-${annotation.lineEnd}`;
+    const selected = annotation.selectedText.length > 120
+      ? annotation.selectedText.slice(0, 120) + '...'
+      : annotation.selectedText;
+
+    return `
+      <div class="history-annotation">
+        <div class="history-annotation-header">
+          <span>${index + 1}. ${lineLabel}</span>
+        </div>
+        <div class="history-annotation-text">${escapeHtml(annotation.annotationText)}</div>
+        <div class="history-annotation-selected">${escapeHtml(selected)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderDiff(diff: string): string {
+  const rows = diff.split(/\r?\n/).map((line) => {
+    let kind = 'context';
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      kind = 'add';
+    } else if (line.startsWith('-') && !line.startsWith('---')) {
+      kind = 'remove';
+    } else if (line.startsWith('@@')) {
+      kind = 'hunk';
+    } else if (line.startsWith('---') || line.startsWith('+++')) {
+      kind = 'file';
+    }
+
+    return `<div class="diff-line diff-${kind}">${escapeHtml(line || ' ')}</div>`;
+  }).join('');
+
+  return `<div class="history-diff">${rows}</div>`;
 }
 
 function showAnalysis(content: string): void {
@@ -246,39 +337,199 @@ function showAnalysis(content: string): void {
   }
 
   panel.classList.remove('hidden');
-  contentEl.innerHTML = renderClaudeLog(content.split(/\r?\n/));
+  contentEl.innerHTML = renderTerminalLog(content);
 }
 
-function renderClaudeLog(lines: string[]): string {
-  if (lines.length === 0) {
-    return '<div class="claude-log"><p class="placeholder">Claude Code output will appear here.</p></div>';
+function renderTerminalLog(content: string): string {
+  if (!content.trim()) {
+    return '<p class="placeholder">Claude Code activity will appear here.</p>';
   }
 
-  const rows = lines.map((line) => {
-    if (!line.trim()) {
-      return '<div class="claude-log-spacer"></div>';
+  const events = parseClaudeCodeLog(content);
+  if (events.length === 0) {
+    if (containsOnlyFilteredClaudeEvents(content)) {
+      return '<p class="placeholder">Claude Code activity will appear here.</p>';
     }
+    return `<pre class="terminal-log">${escapeHtml(content)}</pre>`;
+  }
 
-    const kind = getClaudeLogKind(line);
-    return `<div class="claude-log-row ${kind}"><span class="claude-log-prefix"></span><span class="claude-log-text">${escapeHtml(line)}</span></div>`;
-  }).join('');
+  const rows = events.map((event) => `
+    <div class="cc-log-item cc-log-${event.kind}">
+      <div class="cc-log-marker"></div>
+      <div class="cc-log-content">
+        ${renderClaudeLogEventContent(event)}
+      </div>
+    </div>
+  `).join('');
 
-  return `<div class="claude-log">${rows}</div>`;
+  return `<div class="cc-log-timeline">${rows}</div>`;
 }
 
-function getClaudeLogKind(line: string): string {
-  const trimmed = line.trimStart();
+interface ClaudeLogEvent {
+  kind: 'thought' | 'message' | 'tool' | 'result' | 'error' | 'raw';
+  title: string;
+  meta?: string;
+  body?: string;
+}
 
-  if (/^(Error|Tool error|stderr>)/.test(trimmed)) {
-    return 'is-error';
+function renderClaudeLogEventContent(event: ClaudeLogEvent): string {
+  if (event.kind === 'thought' && event.body) {
+    return `
+      <details class="cc-log-thought-details">
+        <summary>
+          <span class="cc-log-main">${escapeHtml(event.title)}</span>
+          ${event.meta ? `<span class="cc-log-meta">${escapeHtml(event.meta)}</span>` : ''}
+        </summary>
+        <div class="cc-log-body">${escapeHtml(event.body)}</div>
+      </details>
+    `;
   }
-  if (/^(Tool result|Output)/.test(trimmed)) {
-    return 'is-result';
+
+  return `
+    ${event.meta ? `<div class="cc-log-meta">${escapeHtml(event.meta)}</div>` : ''}
+    <div class="cc-log-main">${escapeHtml(event.title)}</div>
+    ${event.body ? `<div class="cc-log-body">${escapeHtml(event.body)}</div>` : ''}
+  `;
+}
+
+function parseClaudeCodeLog(content: string): ClaudeLogEvent[] {
+  const events: ClaudeLogEvent[] = [];
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) { continue; }
+
+    try {
+      const event = JSON.parse(trimmed);
+      appendClaudeEvent(events, event);
+    } catch {
+      events.push({ kind: 'raw', title: line });
+    }
   }
-  if (/^[A-Z][A-Za-z0-9_-]*(\(|\s)/.test(trimmed)) {
-    return 'is-tool';
+
+  return compactClaudeEvents(events);
+}
+
+function containsOnlyFilteredClaudeEvents(content: string): boolean {
+  let sawJson = false;
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) { continue; }
+
+    try {
+      const event = JSON.parse(trimmed);
+      sawJson = true;
+      if (!isFilteredClaudeEvent(event)) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
   }
-  return 'is-message';
+
+  return sawJson;
+}
+
+function isFilteredClaudeEvent(event: any): boolean {
+  return event.type === 'system';
+}
+
+function appendClaudeEvent(events: ClaudeLogEvent[], event: any): void {
+  if (event.type === 'system') {
+    return;
+  }
+
+  if (event.type === 'assistant' && event.message?.content) {
+    for (const block of event.message.content) {
+      if (block.type === 'thinking') {
+        const text = String(block.thinking || '').trim();
+        if (text) {
+          events.push({ kind: 'thought', title: 'Thought', body: text });
+        }
+      } else if (block.type === 'text') {
+        const text = String(block.text || '').trim();
+        if (text) {
+          events.push({ kind: 'message', title: text });
+        }
+      } else if (block.type === 'tool_use') {
+        events.push({
+          kind: 'tool',
+          title: block.name || 'Tool',
+          body: summarizeToolUse(block.name, block.input),
+        });
+      }
+    }
+    return;
+  }
+
+  if (event.type === 'user' && event.message?.content) {
+    for (const block of event.message.content) {
+      if (block.type !== 'tool_result') { continue; }
+      const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
+      events.push({
+        kind: block.is_error ? 'error' : 'result',
+        title: block.is_error ? 'Tool error' : 'Tool result',
+        body: truncateLogBody(content),
+      });
+    }
+    return;
+  }
+
+  if (event.type === 'result') {
+    const meta = [
+      event.duration_ms ? `${Math.round(event.duration_ms / 1000)}s` : '',
+      typeof event.total_cost_usd === 'number' ? `$${event.total_cost_usd.toFixed(4)}` : '',
+    ].filter(Boolean).join(' · ');
+    events.push({
+      kind: 'result',
+      title: event.subtype || 'Completed',
+      meta,
+    });
+    return;
+  }
+
+  if (event.type === 'error') {
+    events.push({
+      kind: 'error',
+      title: event.message || event.error || 'Error',
+    });
+  }
+}
+
+function summarizeToolUse(name: string, input: any): string {
+  if (!input || typeof input !== 'object') { return ''; }
+
+  if (input.file_path) {
+    return String(input.file_path).split('/').pop() || String(input.file_path);
+  }
+  if (input.command) {
+    return truncateLogBody(String(input.command), 320);
+  }
+  if (input.pattern) {
+    return String(input.pattern);
+  }
+  return truncateLogBody(JSON.stringify(input), 320);
+}
+
+function compactClaudeEvents(events: ClaudeLogEvent[]): ClaudeLogEvent[] {
+  const compacted: ClaudeLogEvent[] = [];
+
+  for (const event of events) {
+    const previous = compacted[compacted.length - 1];
+    if (previous && previous.kind === 'message' && event.kind === 'message') {
+      previous.title += '\n' + event.title;
+    } else {
+      compacted.push(event);
+    }
+  }
+
+  return compacted;
+}
+
+function truncateLogBody(text: string, maxLength: number = 1800): string {
+  if (text.length <= maxLength) { return text; }
+  return text.slice(0, maxLength) + '\n...';
 }
 
 function escapeHtml(text: string): string {
@@ -313,6 +564,7 @@ function updateProcessingStatus(status: string, msg?: string): void {
       processingBadge.classList.remove('hidden');
       processingBadge.classList.add('status-done');
       processingBadge.textContent = 'Done!';
+      switchRightTab('history');
       setTimeout(() => {
         processingBadge.classList.add('hidden');
         btnSubmit.disabled = annotations.length === 0;

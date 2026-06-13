@@ -39,8 +39,8 @@
             <span>Annotations</span>
             <span id="annotation-count">0</span>
           </button>
-          <button class="right-tab" data-tab="suggestions" role="tab" aria-selected="false">Suggestions</button>
           <button class="right-tab" data-tab="analysis" role="tab" aria-selected="false">Analysis Log</button>
+          <button class="right-tab" data-tab="history" role="tab" aria-selected="false">History</button>
         </div>
 
         <!-- Annotations -->
@@ -56,17 +56,6 @@
           </div>
         </div>
 
-        <!-- Editable Suggestions -->
-        <div id="suggestions-panel" class="tab-panel" data-panel="suggestions">
-          <div id="suggestions-header" class="panel-header">
-            <div>
-              <h3>Suggestions</h3>
-              <span class="panel-subtitle">Execution plan</span>
-            </div>
-          </div>
-          <textarea id="suggestions-editor" spellcheck="false" readonly></textarea>
-        </div>
-
         <!-- Analysis Log -->
         <div id="analysis-panel" class="tab-panel" data-panel="analysis">
           <div id="analysis-header" class="panel-header">
@@ -76,6 +65,17 @@
             </div>
           </div>
           <div id="analysis-content"><p class="placeholder">Raw Claude Code output will appear here.</p></div>
+        </div>
+
+        <!-- History -->
+        <div id="history-panel" class="tab-panel" data-panel="history">
+          <div id="history-header" class="panel-header">
+            <div>
+              <h3>History</h3>
+              <span class="panel-subtitle">Applied modification diffs</span>
+            </div>
+          </div>
+          <div id="history-content"><p class="placeholder">Applied diffs will appear here.</p></div>
         </div>
       </div>
     </div>

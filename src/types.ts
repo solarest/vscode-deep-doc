@@ -53,7 +53,21 @@ export type ExtensionToWebview =
   | { type: 'displayAnalysis'; content: string }
   | { type: 'logProgress'; lines: string[] }
   | { type: 'annotationStatus'; annotationId: string; status: 'running' | 'done' | 'error'; analysis?: string; error?: string }
-  | { type: 'showSuggestions'; content: string };
+  | {
+      type: 'updateHistory';
+      entries: Array<{
+        id: string;
+        timestamp: number;
+        fileName: string;
+        annotations: Array<{
+          lineStart: number;
+          lineEnd: number;
+          selectedText: string;
+          annotationText: string;
+        }>;
+        diff: string;
+      }>;
+    };
 
 /** Result from Phase 1 Claude processing */
 export interface Phase1Suggestion {

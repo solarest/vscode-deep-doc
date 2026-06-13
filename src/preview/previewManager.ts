@@ -12,6 +12,19 @@ import { HtmlProvider } from '../webview/htmlProvider';
 import { setupMessageHandler } from '../webview/messageHandler';
 import { Annotation } from '../types';
 
+interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  fileName: string;
+  annotations: Array<{
+    lineStart: number;
+    lineEnd: number;
+    selectedText: string;
+    annotationText: string;
+  }>;
+  diff: string;
+}
+
 export class PreviewManager {
   private panel: vscode.WebviewPanel | null = null;
   private htmlProvider: HtmlProvider;
@@ -22,6 +35,7 @@ export class PreviewManager {
   private phase1Output: string = '';
   private _retryTimer: NodeJS.Timeout | null = null;
   private analysisLogLines: string[] = [];
+  private modificationHistory: HistoryEntry[] = [];
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -197,6 +211,7 @@ export class PreviewManager {
         annotations,
         filePath: this._currentFilePath,
       });
+      await this.sendHistoryToWebview();
     } catch (err) {
       console.error('[DeepDoc] Failed to refresh preview:', err);
     }
@@ -220,22 +235,17 @@ export class PreviewManager {
     void this.sendAnalysisLog();
   }
 
-  private appendAnalysisLog(lines: string | string[]): void {
-    const nextLines = Array.isArray(lines) ? lines : [lines];
-    this.analysisLogLines.push(...nextLines);
+  private appendAnalysisLog(text: string): void {
+    this.analysisLogLines.push(text);
     void this.sendAnalysisLog();
   }
 
   private appendClaudeOutput(stream: 'claude' | 'stderr', chunk: string): void {
-    const lines = chunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    const prefix = stream === 'stderr' ? 'stderr> ' : '';
-    const formatted = lines
-      .filter((line, index) => line.length > 0 || index < lines.length - 1)
-      .map((line, index) => index === 0 ? `${prefix}${line}` : `  ${line}`);
-
-    if (formatted.length > 0) {
-      this.appendAnalysisLog(formatted);
+    if (stream === 'stderr') {
+      this.appendAnalysisLog(chunk);
+      return;
     }
+    this.appendAnalysisLog(chunk);
   }
 
   private async sendAnalysisLog(): Promise<void> {
@@ -243,8 +253,38 @@ export class PreviewManager {
 
     await this.panel.webview.postMessage({
       type: 'logProgress',
-      lines: [...this.analysisLogLines],
+      lines: [this.analysisLogLines.join('')],
     });
+  }
+
+  private async sendHistoryToWebview(): Promise<void> {
+    if (!this.panel) { return; }
+
+    await this.panel.webview.postMessage({
+      type: 'updateHistory',
+      entries: [...this.modificationHistory],
+    });
+  }
+
+  private addHistoryEntry(filePath: string, annotations: Annotation[], before: string, after: string): void {
+    const fileName = filePath.split('/').pop() || filePath;
+    const diff = this.buildUnifiedDiff(fileName, before, after);
+
+    this.modificationHistory.unshift({
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: Date.now(),
+      fileName,
+      annotations: annotations.map((annotation) => ({
+        lineStart: annotation.lineStart,
+        lineEnd: annotation.lineEnd,
+        selectedText: annotation.selectedText,
+        annotationText: annotation.annotationText,
+      })),
+      diff,
+    });
+
+    this.modificationHistory = this.modificationHistory.slice(0, 20);
+    void this.sendHistoryToWebview();
   }
 
   /**
@@ -339,15 +379,11 @@ export class PreviewManager {
         (failedCount > 0 ? ` (${failedCount} failed)` : '');
 
       await this.panel.webview.postMessage({
-        type: 'showSuggestions',
-        content: this.phase1Output,
-      });
-      await this.panel.webview.postMessage({
         type: 'processingStatus',
         status: 'phase2',
         message: `Applying ${statusMsg}...`,
       });
-      await this.runPhase2();
+      await this.runPhase2([...annotations]);
     } catch (err: any) {
       console.error('[DeepDoc] Phase 1 failed:', err);
       await this.panel.webview.postMessage({
@@ -362,7 +398,7 @@ export class PreviewManager {
   /**
    * Execute Phase 2: send original + suggestions to Claude.
    */
-  private async runPhase2(): Promise<void> {
+  private async runPhase2(historyAnnotations: Annotation[]): Promise<void> {
     if (!this.panel || !this._currentFilePath) { return; }
 
     await this.panel.webview.postMessage({
@@ -383,6 +419,7 @@ export class PreviewManager {
       });
 
       // Apply the modified content back to the file
+      const originalContent = this._currentFileContent;
       const modifiedContent = result.result;
 
       // Write back using VSCode API for undo support
@@ -404,6 +441,8 @@ export class PreviewManager {
       // Save the file
       const doc = await vscode.workspace.openTextDocument(uri);
       await doc.save();
+
+      this.addHistoryEntry(this._currentFilePath, historyAnnotations, originalContent, modifiedContent);
 
       // Clear annotations after successful apply
       this.annotationStore.clear(this._currentFilePath);
@@ -452,6 +491,57 @@ export class PreviewManager {
     if (!this.panel || doc.uri.fsPath !== this._currentFilePath) { return; }
     this._currentFileContent = doc.getText();
     this.refreshPreview();
+  }
+
+  private buildUnifiedDiff(fileName: string, before: string, after: string): string {
+    if (before === after) {
+      return `--- ${fileName}\n+++ ${fileName}\n@@ no changes @@\n`;
+    }
+
+    const beforeLines = before.split('\n');
+    const afterLines = after.split('\n');
+    const rows = beforeLines.length + 1;
+    const cols = afterLines.length + 1;
+    const table: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
+
+    for (let i = beforeLines.length - 1; i >= 0; i--) {
+      for (let j = afterLines.length - 1; j >= 0; j--) {
+        table[i][j] = beforeLines[i] === afterLines[j]
+          ? table[i + 1][j + 1] + 1
+          : Math.max(table[i + 1][j], table[i][j + 1]);
+      }
+    }
+
+    const diffLines: string[] = [
+      `--- ${fileName}`,
+      `+++ ${fileName}`,
+      '@@ applied changes @@',
+    ];
+
+    let i = 0;
+    let j = 0;
+    while (i < beforeLines.length && j < afterLines.length) {
+      if (beforeLines[i] === afterLines[j]) {
+        diffLines.push(` ${beforeLines[i]}`);
+        i++;
+        j++;
+      } else if (table[i + 1][j] >= table[i][j + 1]) {
+        diffLines.push(`-${beforeLines[i]}`);
+        i++;
+      } else {
+        diffLines.push(`+${afterLines[j]}`);
+        j++;
+      }
+    }
+
+    while (i < beforeLines.length) {
+      diffLines.push(`-${beforeLines[i++]}`);
+    }
+    while (j < afterLines.length) {
+      diffLines.push(`+${afterLines[j++]}`);
+    }
+
+    return diffLines.join('\n');
   }
 
   /**

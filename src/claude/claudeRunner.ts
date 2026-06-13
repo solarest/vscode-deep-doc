@@ -120,6 +120,7 @@ export class ClaudeRunner {
       proc.stdout?.on('data', (chunk: Buffer) => {
         const text = chunk.toString();
         stdout += text;
+        onOutput?.('claude', text);
         stdoutBuffer += text;
 
         const lines = stdoutBuffer.split(/\r?\n/);
@@ -138,11 +139,8 @@ export class ClaudeRunner {
             if (parsed.result) {
               result = parsed.result;
             }
-            if (parsed.log) {
-              onOutput?.('claude', parsed.log);
-            }
           } catch {
-            onOutput?.('claude', trimmed);
+            // Keep raw terminal output in the UI; parsing failures only affect result extraction.
           }
         }
       });
@@ -179,11 +177,8 @@ export class ClaudeRunner {
             if (parsed.result) {
               result = parsed.result;
             }
-            if (parsed.log) {
-              onOutput?.('claude', parsed.log);
-            }
           } catch {
-            onOutput?.('claude', pending);
+            // Keep raw terminal output in the UI; parsing failures only affect result extraction.
           }
         }
 
