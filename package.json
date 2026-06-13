@@ -1,0 +1,99 @@
+{
+  "name": "vscode-deep-doc",
+  "displayName": "Deep Doc - AI-Powered Document Review",
+  "description": "Annotate markdown documents and process annotations with Claude Code",
+  "version": "0.1.0",
+  "publisher": "vscode-deep-doc",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:markdown",
+    "onCommand:vscode-deep-doc.showPreview"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscode-deep-doc.showPreview",
+        "title": "Deep Doc: Show Preview",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "vscode-deep-doc.submitToClaude",
+        "title": "Deep Doc: Submit Annotations to Claude"
+      },
+      {
+        "command": "vscode-deep-doc.clearAnnotations",
+        "title": "Deep Doc: Clear All Annotations"
+      },
+      {
+        "command": "vscode-deep-doc.exportAnnotations",
+        "title": "Deep Doc: Export Annotations"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vscode-deep-doc.showPreview",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "vscode-deep-doc.showPreview",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "vscode-deep-doc.showPreview",
+          "when": "resourceExtname == .md",
+          "group": "1_deepdoc"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Deep Doc",
+      "properties": {
+        "vscode-deep-doc.claudePath": {
+          "type": "string",
+          "default": "claude",
+          "description": "Path to the Claude Code CLI executable"
+        },
+        "vscode-deep-doc.claudeTimeout": {
+          "type": "number",
+          "default": 120,
+          "description": "Timeout in seconds for Claude Code operations"
+        },
+        "vscode-deep-doc.autoSyncAnnotations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically sync annotation highlight with preview scroll position"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "node esbuild.config.mjs",
+    "compile:prod": "node esbuild.config.mjs --production",
+    "watch": "node esbuild.config.mjs --watch",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "markdown-it": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^13.0.7",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}

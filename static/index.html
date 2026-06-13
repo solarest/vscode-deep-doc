@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{CSP_NONCE}}'; img-src {{CSP_SOURCE}} data:;">
+  <link rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+  <style nonce="{{CSP_NONCE}}" id="debug-styles">
+    .hidden { display: none !important; }
+  </style>
+  <title>Deep Doc Preview</title>
+</head>
+<body>
+  <div id="app" data-initial="{{INITIAL_DATA}}">
+    <div id="toolbar">
+      <div id="toolbar-title">
+        <span id="product-mark">D</span>
+        <div id="toolbar-title-text">
+          <span id="file-name">Deep Doc Preview</span>
+          <span id="workspace-label">Markdown review workspace</span>
+        </div>
+      </div>
+      <div id="toolbar-actions">
+        <span id="processing-badge" class="hidden">Processing...</span>
+        <button id="btn-submit" class="primary-action" disabled>Submit to Claude</button>
+      </div>
+    </div>
+    <div id="main-content">
+      <div id="preview-container" class="column-left">
+        <div id="markdown-content">
+          <p class="placeholder">Open a Markdown file to preview.</p>
+        </div>
+      </div>
+      <div id="sidebar-divider" title="Resize sidebar"></div>
+      <div id="annotation-container" class="column-right">
+        <div id="right-tabs" role="tablist" aria-label="Review panels">
+          <button class="right-tab active" data-tab="annotations" role="tab" aria-selected="true">
+            <span>Annotations</span>
+            <span id="annotation-count">0</span>
+          </button>
+          <button class="right-tab" data-tab="suggestions" role="tab" aria-selected="false">Suggestions</button>
+          <button class="right-tab" data-tab="analysis" role="tab" aria-selected="false">Analysis Log</button>
+        </div>
+
+        <!-- Annotations -->
+        <div id="annotations-panel" class="tab-panel active" data-panel="annotations">
+          <div id="annotation-header" class="panel-header">
+            <div>
+              <h3>Annotations</h3>
+              <span class="panel-subtitle">Review queue</span>
+            </div>
+          </div>
+          <div id="annotation-list">
+            <p class="placeholder">Select text in the preview to add annotations.</p>
+          </div>
+        </div>
+
+        <!-- Editable Suggestions -->
+        <div id="suggestions-panel" class="tab-panel" data-panel="suggestions">
+          <div id="suggestions-header" class="panel-header">
+            <div>
+              <h3>Suggestions</h3>
+              <span class="panel-subtitle">Execution plan</span>
+            </div>
+          </div>
+          <textarea id="suggestions-editor" spellcheck="false" readonly></textarea>
+        </div>
+
+        <!-- Analysis Log -->
+        <div id="analysis-panel" class="tab-panel" data-panel="analysis">
+          <div id="analysis-header" class="panel-header">
+            <div>
+              <h3>Analysis Log</h3>
+              <span class="panel-subtitle">Claude Code output</span>
+            </div>
+          </div>
+          <div id="analysis-content"><p class="placeholder">Raw Claude Code output will appear here.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script nonce="{{CSP_NONCE}}" src="{{WEBVIEW_JS_URI}}"></script>
+</body>
+</html>
